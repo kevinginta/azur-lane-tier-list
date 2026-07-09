@@ -1,0 +1,35 @@
+name: Sync ship data from sheet
+
+on:
+  schedule:
+    # Every 6 hours - catches sheet edits reasonably quickly without spamming commits.
+    - cron: "0 */6 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Pull latest ship data from the Google Sheet
+        run: python sync_sheet.py
+
+      - name: Commit and push if index.html changed
+        run: |
+          if [ -z "$(git status --porcelain index.html)" ]; then
+            echo "No changes."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git commit -m "Auto-sync ship data from sheet"
+          git push
