@@ -196,6 +196,23 @@
     border-radius: 4px;
     flex: 0 0 auto;
   }
+  .ship-icon {
+    width: 26px;
+    height: 26px;
+    border-radius: 5px;
+    object-fit: cover;
+    flex: 0 0 auto;
+    background: rgba(255,255,255,0.05);
+  }
+  .modal-icon {
+    width: 52px;
+    height: 52px;
+    border-radius: 8px;
+    object-fit: cover;
+    float: left;
+    margin: 2px 12px 6px 0;
+    background: rgba(255,255,255,0.05);
+  }
   .ship-chip .star {
     color: var(--tier-a);
     font-weight: 800;
@@ -348,6 +365,11 @@ const state = {
 
 document.getElementById('lastUpdated').textContent = DATA.lastUpdated;
 
+function iconSrc(ship) {
+  if (ship.id === null || ship.id === undefined) return null;
+  return 'images/' + Math.floor(ship.id / 10) + '.png';
+}
+
 function tierClass(t) {
   if (!t) return 'F';
   const base = t.replace('*','').trim();
@@ -467,7 +489,10 @@ function renderTiers() {
     list.forEach(({ship, raw}) => {
       const chip = document.createElement('div');
       chip.className = 'ship-chip';
-      chip.innerHTML = `<span class="hull-badge">${ship.hull}</span><span class="name">${ship.name}</span>` +
+      const src = iconSrc(ship);
+      const iconHtml = src ? `<img class="ship-icon" src="${src}" loading="lazy" onerror="this.style.display='none'">` : '';
+      chip.innerHTML = iconHtml +
+        `<span class="hull-badge">${ship.hull}</span><span class="name">${ship.name}</span>` +
         (isSituational(raw) ? '<span class="star">&#9733;</span>' : '');
       chip.onclick = () => openModal(ship);
       shipsEl.appendChild(chip);
@@ -482,7 +507,10 @@ function renderTiers() {
 }
 
 function openModal(ship) {
-  document.getElementById('modalName').textContent = ship.name;
+  const src = iconSrc(ship);
+  const nameEl = document.getElementById('modalName');
+  const iconHtml = src ? `<img class="modal-icon" src="${src}" onerror="this.style.display='none'">` : '';
+  nameEl.innerHTML = iconHtml + ship.name;
   document.getElementById('modalHull').textContent = `${ship.hull} — ${DATA.hullNames[ship.hull] || ''}`;
   const tg = document.getElementById('modalTiers');
   tg.innerHTML = '';
