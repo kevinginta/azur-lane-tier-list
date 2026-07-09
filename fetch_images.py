@@ -2,9 +2,16 @@
 """
 fetch_images.py  -  Azur Lane tier list icon downloader
 
-Run this ONCE inside your repo folder (the one that contains index.html).
-It downloads ship icons from the community AzurAPI dataset into an images/
-folder next to index.html. index.html then shows an icon next to each ship.
+Run this inside your repo folder (the one that contains index.html).
+It downloads ship icons from the Lycoris-AzurAPI dataset (weekly-refreshed
+from AzurLaneTools/AzurLaneData) into an images/ folder next to index.html.
+index.html then shows an icon next to each ship.
+
+Ship IDs to fetch are read directly out of index.html's DATA block, so this
+script stays in sync automatically as ships are added to the sheet.
+
+For ships with no direct match (mostly Retrofit/META variants that share
+their base ship's artwork), it falls back to the base ship's image.
 
 Usage:
     python fetch_images.py
@@ -15,18 +22,36 @@ It is safe to re-run; already-downloaded icons are skipped.
 
 import json
 import os
+import re
 import sys
 import time
 import urllib.request
 import urllib.error
 
-SHIPS_JSON_URL = "https://raw.githubusercontent.com/AzurAPI/azurapi-js-setup/master/ships.json"
-THUMB_URL = "https://raw.githubusercontent.com/AzurAPI/azurapi-js-setup/master/images/skins/{id}/thumbnail.png"
-
-# Ship group IDs used by this tier list (gid = sheet ship id // 10)
-GIDS = [10000, 10001, 10002, 10102, 10103, 10104, 10105, 10106, 10107, 10108, 10109, 10110, 10111, 10112, 10113, 10114, 10115, 10116, 10117, 10124, 10125, 10126, 10127, 10129, 10130, 10131, 10133, 10134, 10135, 10136, 10137, 10138, 10139, 10140, 10141, 10142, 10143, 10144, 10145, 10146, 10147, 10148, 10149, 10150, 10151, 10152, 10153, 10155, 10199, 10201, 10202, 10203, 10204, 10205, 10206, 10207, 10208, 10209, 10210, 10211, 10212, 10213, 10214, 10215, 10216, 10217, 10218, 10219, 10220, 10221, 10222, 10223, 10224, 10225, 10226, 10227, 10228, 10229, 10230, 10231, 10232, 10233, 10234, 10235, 10301, 10302, 10303, 10304, 10305, 10306, 10307, 10308, 10309, 10310, 10311, 10312, 10313, 10314, 10316, 10324, 10325, 10326, 10327, 10328, 10329, 10401, 10501, 10502, 10503, 10504, 10507, 10508, 10509, 10510, 10511, 10512, 10513, 10514, 10515, 10517, 10519, 10520, 10521, 10522, 10523, 10601, 10602, 10655, 10701, 10702, 10703, 10704, 10705, 10706, 10707, 10708, 10709, 10710, 10711, 10712, 10713, 10714, 10716, 10717, 10722, 10723, 10725, 10727, 10729, 10730, 10738, 10797, 10798, 10799, 10801, 10802, 10803, 10804, 10805, 10806, 10807, 10808, 10809, 11201, 11802, 19901, 19902, 19903, 19904, 19905, 19906, 20102, 20103, 20106, 20107, 20108, 20109, 20110, 20111, 20112, 20113, 20114, 20116, 20120, 20121, 20122, 20123, 20124, 20125, 20126, 20127, 20129, 20132, 20133, 20134, 20135, 20136, 20137, 20138, 20139, 20151, 20152, 20201, 20202, 20203, 20204, 20207, 20208, 20209, 20210, 20211, 20212, 20213, 20214, 20215, 20216, 20217, 20218, 20219, 20220, 20221, 20222, 20223, 20224, 20225, 20226, 20227, 20228, 20229, 20230, 20231, 20232, 20233, 20234, 20235, 20236, 20301, 20302, 20303, 20304, 20305, 20306, 20307, 20308, 20309, 20310, 20311, 20312, 20313, 20401, 20402, 20403, 20404, 20501, 20502, 20503, 20504, 20505, 20506, 20507, 20509, 20510, 20511, 20512, 20513, 20514, 20515, 20516, 20601, 20602, 20603, 20604, 20605, 20606, 20607, 20608, 20613, 20701, 20702, 20703, 20704, 20705, 20706, 20707, 20709, 20711, 20712, 20713, 20714, 21301, 21302, 21304, 29901, 29902, 29903, 29904, 29905, 30101, 30102, 30104, 30105, 30109, 30110, 30111, 30112, 30114, 30115, 30116, 30117, 30118, 30120, 30121, 30123, 30124, 30125, 30126, 30127, 30128, 30129, 30130, 30131, 30132, 30133, 30135, 30137, 30138, 30139, 30141, 30147, 30148, 30149, 30153, 30154, 30156, 30157, 30158, 30159, 30160, 30161, 30162, 30163, 30164, 30165, 30166, 30172, 30179, 30180, 30182, 30183, 30184, 30185, 30186, 30187, 30188, 30189, 30190, 30191, 30192, 30193, 30194, 30201, 30204, 30205, 30206, 30207, 30208, 30209, 30211, 30212, 30213, 30214, 30220, 30221, 30223, 30224, 30225, 30226, 30227, 30228, 30229, 30301, 30302, 30303, 30304, 30306, 30307, 30308, 30309, 30310, 30311, 30312, 30313, 30314, 30315, 30317, 30318, 30319, 30320, 30321, 30401, 30402, 30403, 30404, 30405, 30406, 30407, 30408, 30505, 30506, 30507, 30508, 30510, 30511, 30512, 30513, 30514, 30516, 30517, 30601, 30602, 30603, 30604, 30605, 30606, 30607, 30608, 30609, 30701, 30702, 30703, 30704, 30705, 30706, 30707, 30708, 30709, 30710, 30711, 30712, 30713, 30714, 30715, 30716, 30717, 30801, 30802, 30803, 30804, 30805, 30806, 31001, 31002, 31003, 31004, 31201, 31701, 31702, 31901, 39901, 39902, 39903, 39904, 39905, 39906, 39907, 40101, 40102, 40109, 40111, 40113, 40114, 40115, 40116, 40118, 40119, 40120, 40121, 40123, 40124, 40125, 40126, 40128, 40135, 40136, 40143, 40146, 40147, 40152, 40199, 40201, 40202, 40204, 40205, 40206, 40207, 40208, 40210, 40211, 40213, 40301, 40302, 40303, 40304, 40305, 40307, 40308, 40309, 40310, 40311, 40312, 40313, 40314, 40315, 40316, 40317, 40399, 40401, 40402, 40403, 40404, 40405, 40406, 40407, 40501, 40502, 40503, 40504, 40505, 40506, 40507, 40601, 40602, 40603, 40701, 40702, 40703, 40704, 40801, 40802, 40803, 40804, 40805, 40806, 40807, 40808, 40809, 40810, 40811, 40812, 40813, 40814, 40815, 49901, 49902, 49903, 49904, 49905, 49906, 49907, 49908, 49909, 49910, 50101, 50102, 50103, 50104, 50105, 50106, 50107, 50108, 50109, 50201, 50202, 50203, 50204, 50205, 50207, 50208, 50209, 50210, 50211, 50212, 50301, 50302, 50401, 50602, 50611, 50612, 51901, 52001, 52002, 52003, 52004, 52101, 52102, 52103, 52104, 59901, 60102, 60103, 60104, 60105, 60106, 60107, 60108, 60109, 60110, 60111, 60112, 60201, 60202, 60203, 60204, 60301, 60302, 60303, 60304, 60305, 60306, 60501, 60502, 60503, 60505, 60506, 60507, 60508, 60509, 60701, 60702, 60801, 60802, 60803, 69901, 69902, 69903, 70102, 70103, 70104, 70105, 70106, 70107, 70108, 70109, 70110, 70111, 70112, 70113, 70201, 70203, 70204, 70205, 70206, 70207, 70208, 70209, 70210, 70212, 70301, 70302, 70303, 70501, 70502, 70504, 70505, 70506, 70507, 70508, 70509, 70701, 71801, 79901, 79902, 79903, 80101, 80102, 80103, 80104, 80105, 80106, 80107, 80108, 80109, 80201, 80202, 80203, 80204, 80301, 80302, 80303, 80401, 80501, 80502, 80503, 80601, 80602, 80701, 80702, 80801, 81801, 89901, 89902, 89903, 89904, 90101, 90102, 90103, 90104, 90105, 90106, 90107, 90111, 90112, 90113, 90114, 90201, 90202, 90301, 90302, 90303, 90401, 90402, 90501, 90502, 90503, 90701, 99901, 99902, 110101, 110201, 119901, 960001, 960002, 960003, 960004, 960005, 960006, 960007, 960008, 960009, 960010, 960011, 960012, 960013, 960014, 960015, 960016, 970101, 970102, 970103, 970104, 970105, 970106, 970107, 970108, 970109, 970110, 970111, 970112, 970201, 970202, 970203, 970204, 970205, 970206, 970207, 970208, 970209, 970210, 970211, 970212, 970301, 970302, 970303, 970304, 970305, 970306, 970401, 970402, 970403, 970404, 970405, 970406, 970501, 970502, 970503, 970504, 970505, 970506, 970507, 970508, 970509, 970510, 970601, 970602, 970603, 970604, 970605, 970701, 970702, 970703, 970704, 970705, 970706, 970707, 970708, 970801, 971201, 971301, 1010001, 1010002, 1010003, 1010004, 1010005, 1010006, 1010007, 1010008, 1040001, 1040002, 1040003, 1040004, 1050001, 1050002, 1050003, 1050004, 1050005, 1050006, 1050007, 1060001, 1060002, 1060003, 1060004, 1060005, 1060006, 1060007, 1060008, 1060009, 1060010, 1060011, 1060012, 1060013, 1060014, 1060015, 1070001, 1070002, 1070003, 1070004, 1070005, 1070006, 1070007, 1080001, 1080002, 1080003, 1080004, 1080005, 1080006, 1080007, 1080008, 1080009, 1090001, 1090002, 1090003, 1090004, 1090005, 1090006, 1100001, 1100002, 1100003, 1100004, 1100005, 1100006, 1100007, 1110001, 1110002, 1110003, 1110004, 1110005, 1110006, 1120001, 1120002, 1130001, 1130002, 1130003, 1130004, 1140001, 1140002, 1150001, 1150002, 1150003, 1150004, 1150005, 1150006]
+SHIPS_JSON_URL = "https://raw.githubusercontent.com/iujab/Lycoris-AzurAPI/main/data/ships.json"
+THUMB_URL = "https://raw.githubusercontent.com/iujab/azurlane-images/main/thumbnails/{gid}.png"
 
 OUT_DIR = "images"
+
+SUFFIX_PATTERNS = [
+    r"\s*\(with .*?\)\s*$",
+    r"\s*\(combo\)\s*$",
+    r"\s*without .*$",
+    r"\s*\(Retrofit\)\s*\(Main\)\s*$",
+    r"\s*\(Retrofit\)\s*$",
+    r"\s*META\s*$",
+    r"\s*μ\s*$",
+    r"-chan\s*$",
+    r"\s*\(Main\)\s*$",
+]
+
+
+def base_name(name):
+    x = name
+    for pat in SUFFIX_PATTERNS:
+        x = re.sub(pat, "", x)
+    return x.strip()
+
 
 def fetch(url, binary=False, retries=3):
     last = None
@@ -41,12 +66,42 @@ def fetch(url, binary=False, retries=3):
             time.sleep(2 * (attempt + 1))
     raise last
 
+
+def load_ships_from_data(here):
+    index_path = os.path.join(here, "index.html")
+    with open(index_path, encoding="utf-8") as f:
+        for line in f:
+            if line.strip().startswith("const DATA"):
+                raw = line.strip()[len("const DATA = "):].rstrip(";")
+                return json.loads(raw)
+    raise RuntimeError("Could not find 'const DATA = ' line in index.html")
+
+
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     here = os.path.dirname(os.path.abspath(__file__))
     os.chdir(here)
     os.makedirs(OUT_DIR, exist_ok=True)
 
-    print("Downloading AzurAPI ship dataset ...")
+    print("Reading ship list from index.html ...")
+    data = load_ships_from_data(here)
+
+    # gid -> ship name (first one wins), name -> gid (for base-name fallback lookup)
+    gid_to_name = {}
+    name_to_gid = {}
+    for fleet, ships in data["ships"].items():
+        for s in ships:
+            if s.get("id") is None:
+                continue
+            gid = int(s["id"] // 10)
+            gid_to_name.setdefault(gid, s["name"])
+            name_to_gid.setdefault(s["name"], gid)
+
+    gids = sorted(gid_to_name.keys())
+    print("Ships needing icons: {}".format(len(gids)))
+
+    print("Downloading Lycoris-AzurAPI ship dataset ...")
     try:
         ships = json.loads(fetch(SHIPS_JSON_URL))
     except Exception as e:
@@ -54,60 +109,68 @@ def main():
         print("Check your internet connection and try again.")
         sys.exit(1)
 
-    # Build gid -> AzurAPI image id map
-    gid_to_id = {}
-    for entry in ships.values():
-        gid = entry.get("_gid")
-        img_id = entry.get("id")
-        if gid is not None and img_id is not None:
-            gid_to_id[int(gid)] = img_id
+    available_gids = set(int(k) for k in ships.keys())
 
-    total = len(GIDS)
+    total = len(gids)
     downloaded = 0
     skipped = 0
+    fallback_used = 0
     missing = []
     failed = []
 
     print("Fetching {} ship icons ...".format(total))
-    for i, gid in enumerate(GIDS, 1):
+    for i, gid in enumerate(gids, 1):
         out_path = os.path.join(OUT_DIR, "{}.png".format(gid))
         if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
             skipped += 1
             continue
-        img_id = gid_to_id.get(gid)
-        if img_id is None:
+
+        source_gid = gid if gid in available_gids else None
+
+        if source_gid is None:
+            # Fall back to the base ship's gid (e.g. "X (Retrofit)" / "X META" -> "X")
+            bname = base_name(gid_to_name[gid])
+            candidate = name_to_gid.get(bname)
+            if candidate is not None and candidate in available_gids:
+                source_gid = candidate
+
+        if source_gid is None:
             missing.append(gid)
             continue
-        url = THUMB_URL.format(id=img_id)
+
+        url = THUMB_URL.format(gid=source_gid)
         try:
-            data = fetch(url, binary=True)
+            data_bytes = fetch(url, binary=True)
             with open(out_path, "wb") as f:
-                f.write(data)
+                f.write(data_bytes)
             downloaded += 1
+            if source_gid != gid:
+                fallback_used += 1
         except Exception as e:
-            failed.append((gid, img_id, str(e)))
+            failed.append((gid, source_gid, str(e)))
         if i % 50 == 0 or i == total:
             print("  {}/{} processed (downloaded {}, skipped {})".format(i, total, downloaded, skipped))
 
     print()
     print("=" * 48)
     print("Done.")
-    print("  Downloaded this run : {}".format(downloaded))
-    print("  Already had         : {}".format(skipped))
-    print("  Not in AzurAPI yet  : {}".format(len(missing)))
-    print("  Failed downloads    : {}".format(len(failed)))
+    print("  Downloaded this run   : {}".format(downloaded))
+    print("    (via base-ship fallback: {})".format(fallback_used))
+    print("  Already had           : {}".format(skipped))
+    print("  Not found (no icon)   : {}".format(len(missing)))
+    print("  Failed downloads      : {}".format(len(failed)))
     if missing:
         print()
-        print("Ships not found in AzurAPI (usually brand-new ships).")
-        print("These will simply show no icon; send this list to Claude to look into:")
-        print("  " + ", ".join(str(g) for g in missing))
+        print("Ships with no available icon (not in dataset, no fallback match):")
+        print("  " + ", ".join("{}({})".format(g, gid_to_name[g]) for g in missing))
     if failed:
         print()
         print("Failed to download (network hiccups - just re-run the script):")
-        for gid, img_id, err in failed[:20]:
-            print("  gid {} (image {}): {}".format(gid, img_id, err))
+        for gid, source_gid, err in failed[:20]:
+            print("  gid {} (source {}): {}".format(gid, source_gid, err))
     print("=" * 48)
-    print("Now commit the index.html and the new images/ folder to your repo.")
+    print("Now commit index.html and the images/ folder to your repo.")
+
 
 if __name__ == "__main__":
     main()
